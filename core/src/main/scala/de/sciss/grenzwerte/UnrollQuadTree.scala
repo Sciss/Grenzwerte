@@ -24,9 +24,9 @@ import de.sciss.mutagentx.SOMQuadTree.{PlacedNode, QuadGraphDB}
 import de.sciss.mutagentx.{SOMQuadTree, Vec}
 import de.sciss.processor.Processor
 import de.sciss.span.{Span, SpanLike}
-import de.sciss.synth.proc.graph.{Attribute, FadeInOut, ScanOut}
+import de.sciss.synth.proc.graph.{ScanInFix, Attribute, FadeInOut, ScanOut}
 import de.sciss.synth.proc.{Confluent, FadeSpec, Obj, ObjKeys, Proc, SynthGraphs, Timeline}
-import de.sciss.synth.{Lazy, SynthGraph}
+import de.sciss.synth.{proc, Lazy, SynthGraph}
 import de.sciss.{numbers, synth}
 
 import scala.annotation.tailrec
@@ -46,9 +46,15 @@ import scala.concurrent.{ExecutionContext, blocking}
   *    - remove item from quad-tree copy
   */
 object UnrollQuadTree {
-  case class Config(session: String = "", startX: Double = 0.5, startY: Double = 0.5,
-                    minSpacing: Double = 0.05, maxSpacing: Double = 60.0, clump: Int = 16384,
-                    fadeIn: Double = 0.01, fadeOut: Double = 3.0, maxNodes: Int = 0)
+  case class Config(session   : String  = "",
+                    startX    : Double  =  0.5,
+                    startY    : Double  =  0.5,
+                    minSpacing: Double  =  0.05,
+                    maxSpacing: Double  = 60.0,
+                    clump     : Int     = 16384,
+                    fadeIn    : Double  = 0.01,
+                    fadeOut   : Double  = 3.0,
+                    maxNodes  : Int     = 0)
 
   def main(args: Array[String]): Unit = {
     val parser = new scopt.OptionParser[Config]("UnrollQuadTree") {
@@ -173,13 +179,29 @@ object UnrollQuadTree {
     val fadeInLen   = (Timeline.SampleRate * config.fadeIn  + 0.5).toLong
     val fadeOutLen  = (Timeline.SampleRate * config.fadeOut + 0.5).toLong
 
-    val timelineH = workspace.cursor.step { implicit tx =>
+    val (timelineH, globalProcH) = workspace.cursor.step { implicit tx =>
       val tl        = Timeline[S]
       val tlObj     = Obj(Timeline.Elem(tl))
-      // tlObj.name  = ""
+      import proc.Implicits._
+      tlObj.name    = "Timeline"
       workspace.root.addLast(tlObj)
 
-      tx.newHandle(tl) //  tx.newHandle(fdInObj), tx.newHandle(fdOutObj)
+      val global    = Proc[S]
+      val glGraph   = SynthGraph {
+        import synth._
+        import ugen._
+        val in  = ScanInFix(numChannels = 1)
+        val sig = in * (1 - Attribute.kr(ObjKeys.attrMute, 0)) * Attribute.kr(ObjKeys.attrGain, 1)
+        val bus = Attribute.kr(ObjKeys.attrBus, 0)
+        Out.ar(bus, Pan2.ar(sig))
+      }
+
+      global.graph() = SynthGraphs.newConst(glGraph)
+      val glObj     = Obj(Proc.Elem(global))
+      glObj.name    = "Out"
+      tl.add(SpanLikeEx.newConst[S](Span.All), glObj)
+
+      (tx.newHandle(tl), tx.newHandle(global)) //  tx.newHandle(fdInObj), tx.newHandle(fdOutObj)
     }
 
     // ObjKeys.attrFadeIn
@@ -192,7 +214,7 @@ object UnrollQuadTree {
 
       def process1(in: Product): Product = Option(map.get(in)).getOrElse {
         val out0 = lift(in).getOrElse(in)
-        println(s"PROCESS $in YIELDS $out0")
+        // println(s"PROCESS $in YIELDS $out0")
         val argIn   = out0.productIterator.toIndexedSeq
 
         def mapSeq(xs: IndexedSeq[Any]): IndexedSeq[Any] = xs.map {
@@ -229,11 +251,19 @@ object UnrollQuadTree {
       val p       = Proc[S]
       import synth._
       import ugen._
+
+      def mkOut(in: GE): ScanOut = {
+        import synth._
+        val bad   = CheckBadValues.ar(in, post = 0)
+        val gate  = Gate.ar(in, bad sig_== 0)
+        val lim   = Limiter.ar(LeakDC.ar(gate))
+        val sig   = lim * FadeInOut.ar * (1 - Attribute.kr(ObjKeys.attrMute, 0)) * Attribute.kr(ObjKeys.attrGain, 1)
+        ScanOut(sig)
+      }
+
       val graph1  = transformGraph(graph0) {
-        case ConfigOut(in) =>
-          import synth._
-          val sig = in * FadeInOut.ar * (1 - Attribute.kr(ObjKeys.attrMute, 0)) * Attribute.kr(ObjKeys.attrGain, 1)
-          ScanOut(sig)
+        case ConfigOut      (in) => mkOut(in)
+        case Out(`audio`, _, in) => mkOut(in)
 
         case EnvGen_ADSR(attack, decay, sustainLevel, release, peakLevel, gate, levelScale, levelBias, timeScale) =>
           val env = Env.adsr(attack = attack, decay = decay, sustainLevel = sustainLevel, release = release, peakLevel = peakLevel)
@@ -270,14 +300,18 @@ object UnrollQuadTree {
       val graph = graph1.copy(sources = graph1.sources.filterNot { lz =>
         lz.productPrefix == "RandSeed"
       })
+
       p.graph() = SynthGraphs.newConst[S](graph)
+      val scanOut = p.scans.add("out")
+      scanOut.addSink(globalProcH().scans.add("in"))
+
       val procObj = Obj(Proc.Elem(p))
       import proc.Implicits._
       procObj.name = s"(${node.coord.x},${node.coord.y})"
 
       val fdIn      = FadeSpec(numFrames = fadeInLen )
       val fdOut     = FadeSpec(numFrames = fadeOutLen)
-      def mkFdObj(fd: FadeSpec) = Obj(FadeSpec.Elem(FadeSpec.Expr.newVar(FadeSpec.Expr.newConst[S](fd))))
+      def mkFdObj(fd: FadeSpec) = Obj(FadeSpec.Elem(/* FadeSpec.Expr.newVar( */ FadeSpec.Expr.newConst[S](fd)/* ) */))
 
       val fdInObj   = mkFdObj(fdIn )
       val fdOutObj  = mkFdObj(fdOut)
