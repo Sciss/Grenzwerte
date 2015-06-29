@@ -1,0 +1,26 @@
+def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
+
+play {
+  // RandSeed.ir(trig = 1, seed = 56789.0)
+  val gbmanL_0      = GbmanL.ar(freq = 419.73846, xi = 695.37335, yi = 0.00788784)
+  val minFreq       = LFGauss.ar(dur = -0.0029116, width = 0.00648538, phase = 88.28502, loop = 12.325766, doneAction = doNothing)
+  val rLPF          = RLPF.ar(3.0152974, freq = 325.59705, rq = -2145.0627)
+  val ampScale      = GbmanL.ar(freq = 9.444879E-4, xi = 88.28502, yi = -953.0853)
+  val durScale      = ampScale.cos
+  val gendy2        = Gendy2.ar(ampDist = 12.325766, durDist = 12.325766, adParam = 0.00788784, ddParam = 12.325766, minFreq = minFreq, maxFreq = 0.00788784, ampScale = ampScale, durScale = durScale, initCPs = 88.28502, kNum = 9.444879E-4, a = -2029.8915, c = rLPF)
+  val a0            = Trig1.ar(395.79254, dur = gendy2)
+  val bBandStop     = BBandStop.ar(-0.10943282, freq = 0.00788784, bw = 0.00648538)
+  val b1            = BRF.ar(gendy2, freq = bBandStop, rq = 0.36766747)
+  val fOS           = FOS.ar(0.0015142808, a0 = a0, a1 = 325.59705, b1 = b1)
+  val in_0          = FBSineN.ar(freq = -2145.0627, im = fOS, fb = -0.0029116, a = -2145.0627, c = -0.0076407013, xi = 0.42893913, yi = 338.5671)
+  val lo            = Pan4.ar(in_0, xpos = 0.00648538, ypos = 3.0152974, level = -2029.8915)
+  val wrap          = Wrap.ar(in_0, lo = lo, hi = 2.4852462E-4)
+  val standardN     = StandardN.ar(freq = rLPF, k = 107.30127, xi = 0.004496857, yi = 3.0152974)
+  val gbmanL_1      = GbmanL.ar(freq = 395.79254, xi = 412.14645, yi = 0.00648538)
+  val latoocarfianL = LatoocarfianL.ar(freq = 0.00648538, a = fOS, b = 12.325766, c = 695.37335, d = bBandStop, xi = 107.30127, yi = 4073.4182)
+  val bRF           = BRF.ar(419.73846, freq = -0.0029116, rq = 0.00648538)
+  val lFDNoise1     = LFDNoise1.ar(695.37335)
+  val mix           = Mix(Seq[GE](lFDNoise1, bRF, latoocarfianL, gbmanL_1, standardN, wrap, gbmanL_0))
+  val mono          = Mix.Mono(mix)
+  ConfigOut(mono)
+}

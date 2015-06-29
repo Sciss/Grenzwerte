@@ -1,0 +1,26 @@
+def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
+
+play {
+  // RandSeed.ir(trig = 1, seed = 56789.0)
+  val rq            = TDelay.ar(trig = 9.298126, dur = 419.73846)
+  val bRF           = BRF.ar(695.37335, freq = -0.0029116, rq = rq)
+  val freq_0        = Sweep.ar(trig = 9.298126, speed = 419.73846)
+  val freq_1        = GbmanL.ar(freq = freq_0, xi = 419.73846, yi = 419.73846)
+  val klank         = Klank.ar(specs = -469.48996, in = 23.868387, freqScale = 633.6489, freqOffset = 0.2578632, decayScale = 346.02682)
+  val bBandStop     = BBandStop.ar(419.73846, freq = freq_1, bw = 0.42893913)
+  val density       = StandardN.ar(freq = 0.2578632, k = 419.73846, xi = bBandStop, yi = 0.2578632)
+  val dust2         = Dust2.ar(density)
+  val unaryOpUGen   = dust2.ampdb
+  val a             = Ramp.ar(0.42893913, dur = unaryOpUGen)
+  val in_0          = LeastChange.ar(a = a, b = 0.26494086)
+  val trig1         = Trig1.ar(in_0, dur = klank)
+  val coeff         = Blip.ar(freq = unaryOpUGen, numHarm = trig1)
+  val leakDC        = LeakDC.ar(633.6489, coeff = coeff)
+  val rHPF          = RHPF.ar(klank, freq = 346.02682, rq = 23.868387)
+  val formant       = Formant.ar(fundFreq = 419.73846, formFreq = bBandStop, bw = trig1)
+  val latoocarfianL = LatoocarfianL.ar(freq = 107.30127, a = 0.038728815, b = 23.868387, c = 0.00788784, d = 0.2578632, xi = -469.48996, yi = 0.00788784)
+  val fBSineN       = FBSineN.ar(freq = 23.868387, im = -2038.6556, fb = 0.00788784, a = 0.2578632, c = 23.868387, xi = 0.42893913, yi = 637.2363)
+  val mix           = Mix(Seq[GE](fBSineN, latoocarfianL, formant, rHPF, leakDC, bRF))
+  val mono          = Mix.Mono(mix)
+  ConfigOut(mono)
+}

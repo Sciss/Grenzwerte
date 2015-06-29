@@ -1,0 +1,25 @@
+def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
+
+play {
+  // RandSeed.ir(trig = 1, seed = 56789.0)
+  val rLPF          = RLPF.ar(0.007822896, freq = 0.003141141, rq = 1.4838783)
+  val coeff         = BRF.ar(0.003141141, freq = rLPF, rq = 658.36115)
+  val yi            = OnePole.ar(249.29335, coeff = coeff)
+  val whiteNoise    = WhiteNoise.ar(0.0074092145)
+  val trig_0        = StandardN.ar(freq = -962.5887, k = 421.44797, xi = whiteNoise, yi = yi)
+  val setResetFF    = SetResetFF.ar(trig = trig_0, reset = 0.009223934)
+  val latoocarfianC = LatoocarfianC.ar(freq = -0.0029116, a = 0.004959981, b = rLPF, c = 1641.6785, d = 1271.4851, xi = 4406.2974, yi = 62.733944)
+  val dust2         = Dust2.ar(421.44797)
+  val gbmanL        = GbmanL.ar(freq = 395.79254, xi = dust2, yi = whiteNoise)
+  val c_0           = Dust2.ar(421.44797)
+  val fBSineN       = FBSineN.ar(freq = 0.009223934, im = -962.5887, fb = 690.36304, a = 4276.105, c = c_0, xi = 249.29335, yi = dust2)
+  val bPZ2_0        = BPZ2.ar(325.59705)
+  val in_0          = 9.444879E-4 > yi
+  val combN         = CombN.ar(in_0, maxDelayTime = 1.566785, delayTime = 4276.105, decayTime = 325.59705)
+  val lag2          = Lag2.ar(4276.105, time = 12.325766)
+  val bPZ2_1        = BPZ2.ar(0.004959981)
+  val tIRand        = TIRand.ar(lo = 0.007822896, hi = 0.05434313, trig = -0.0029116)
+  val mix           = Mix(Seq[GE](0.0, tIRand, bPZ2_1, lag2, combN, bPZ2_0, fBSineN, gbmanL, latoocarfianC, setResetFF))
+  val mono          = Mix.Mono(mix)
+  ConfigOut(mono)
+}

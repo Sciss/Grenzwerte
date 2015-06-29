@@ -1,0 +1,28 @@
+def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
+
+play {
+  // RandSeed.ir(trig = 1, seed = 56789.0)
+  val gbmanL_0      = GbmanL.ar(freq = 419.73846, xi = 1.2, yi = 0.00788784)
+  val gbmanL_1      = GbmanL.ar(freq = 9.444879E-4, xi = 92.88581, yi = -953.0853)
+  val freq_0        = gbmanL_1.cos
+  val gbmanL_2      = GbmanL.ar(freq = freq_0, xi = 395.79254, yi = 395.79254)
+  val setResetFF    = SetResetFF.ar(trig = 11.399926, reset = 13.234592)
+  val formFreq      = Trig1.ar(395.79254, dur = setResetFF)
+  val formant       = Formant.ar(fundFreq = 0.0015142808, formFreq = formFreq, bw = -2029.8915)
+  val fBSineN       = FBSineN.ar(freq = -2029.8915, im = formant, fb = -0.0029116, a = -2029.8915, c = -0.0076407013, xi = 4039.796, yi = 338.5671)
+  val b             = FreeVerb.ar(fBSineN, mix = 0.00648538, room = 3.0152974, damp = -2029.8915)
+  val leastChange   = LeastChange.ar(a = fBSineN, b = b)
+  val bRF_0         = BRF.ar(0.00648538, freq = -0.0029116, rq = 419.73846)
+  val lFGauss       = LFGauss.ar(dur = -0.0029116, width = 0.00648538, phase = 92.88581, loop = 11.399926, doneAction = doNothing)
+  val bBandStop     = BBandStop.ar(0.00788784, freq = 0.00648538, bw = -0.11045894)
+  val latoocarfianL = LatoocarfianL.ar(freq = 0.00648538, a = formant, b = 11.399926, c = 695.37335, d = bBandStop, xi = 107.30127, yi = 4073.4182)
+  val freq_1        = RLPF.ar(3.0152974, freq = 325.59705, rq = -2029.8915)
+  val lFDNoise1     = LFDNoise1.ar(freq_1)
+  val standardN     = StandardN.ar(freq = freq_1, k = 107.30127, xi = 0.004496857, yi = 3.0152974)
+  val bRF_1         = BRF.ar(setResetFF, freq = bBandStop, rq = 0.36766747)
+  val linXFade2     = LinXFade2.ar(inA = 0.020259222, inB = 325.59705, pan = 0.0, level = 11.399926)
+  val coinGate      = CoinGate.ar(0.0019275966, prob = 0.00648538)
+  val mix_0         = Mix(Seq[GE](coinGate, linXFade2, bRF_1, standardN, lFDNoise1, latoocarfianL, lFGauss, bRF_0, leastChange, gbmanL_2, gbmanL_0))
+  val mono          = Mix.Mono(mix_0)
+  ConfigOut(mono)
+}
