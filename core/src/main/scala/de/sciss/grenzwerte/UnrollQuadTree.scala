@@ -15,7 +15,7 @@ package de.sciss.grenzwerte
 
 import de.sciss.file._
 import de.sciss.lucre.bitemp.{SpanLike => SpanLikeEx}
-import de.sciss.lucre.expr.Expr
+import de.sciss.lucre.expr.{Expr, Double => DoubleEx}
 import de.sciss.lucre.geom.{IntDistanceMeasure2D, IntPoint2D}
 import de.sciss.lucre.stm
 import de.sciss.lucre.stm.store.BerkeleyDB
@@ -24,9 +24,9 @@ import de.sciss.mutagentx.SOMQuadTree.{PlacedNode, QuadGraphDB}
 import de.sciss.mutagentx.{SOMQuadTree, Vec}
 import de.sciss.processor.Processor
 import de.sciss.span.{Span, SpanLike}
-import de.sciss.synth.proc.graph.{ScanInFix, Attribute, FadeInOut, ScanOut}
-import de.sciss.synth.proc.{Confluent, FadeSpec, Obj, ObjKeys, Proc, SynthGraphs, Timeline}
-import de.sciss.synth.{proc, Lazy, SynthGraph}
+import de.sciss.synth.proc.graph.{Attribute, FadeIn, FadeOut, ScanInFix, ScanOut}
+import de.sciss.synth.proc.{DoubleElem, Confluent, FadeSpec, Obj, ObjKeys, Proc, SynthGraphs, Timeline}
+import de.sciss.synth.{Lazy, SynthGraph, proc}
 import de.sciss.{numbers, synth}
 
 import scala.annotation.tailrec
@@ -179,29 +179,39 @@ object UnrollQuadTree {
     val fadeInLen   = (Timeline.SampleRate * config.fadeIn  + 0.5).toLong
     val fadeOutLen  = (Timeline.SampleRate * config.fadeOut + 0.5).toLong
 
-    val (timelineH, globalProcH) = workspace.cursor.step { implicit tx =>
+    val (timelineH, outLeftH, outRightH) = workspace.cursor.step { implicit tx =>
       val tl        = Timeline[S]
       val tlObj     = Obj(Timeline.Elem(tl))
       import proc.Implicits._
       tlObj.name    = "Timeline"
       workspace.root.addLast(tlObj)
 
-      val global    = Proc[S]
-      val glGraph   = SynthGraph {
-        import synth._
-        import ugen._
-        val in  = ScanInFix(numChannels = 1)
-        val sig = in * (1 - Attribute.kr(ObjKeys.attrMute, 0)) * Attribute.kr(ObjKeys.attrGain, 1)
-        val bus = Attribute.kr(ObjKeys.attrBus, 0)
-        Out.ar(bus, Pan2.ar(sig))
+      def mkPan(tpe: Char, pos: Double): Proc[S] = {
+        val global    = Proc[S]
+        val glGraph   = SynthGraph {
+          import synth._
+          import ugen._
+          val in  = ScanInFix(numChannels = 1)
+          val sig = in * (1 - Attribute.kr(ObjKeys.attrMute, 0)) * Attribute.kr(ObjKeys.attrGain, 1)
+          val bus = Attribute.kr(ObjKeys.attrBus, 0)
+          val pan = Attribute.kr("pan", 0)
+          Out.ar(bus, Pan2.ar(sig, pos = pan))
+        }
+
+        global.graph()  = SynthGraphs.newConst(glGraph)
+        global.scans.add("in")
+
+        val gbObj       = Obj(Proc.Elem(global))
+        gbObj.name      = s"Out-$tpe"
+        gbObj.attr.put("pan", Obj(DoubleElem(DoubleEx.newVar(DoubleEx.newConst[S](pos)))))
+        tl.add(SpanLikeEx.newConst[S](Span.All), gbObj)
+        global
       }
 
-      global.graph() = SynthGraphs.newConst(glGraph)
-      val glObj     = Obj(Proc.Elem(global))
-      glObj.name    = "Out"
-      tl.add(SpanLikeEx.newConst[S](Span.All), glObj)
+      val outLeft   = mkPan(tpe = 'L', pos = -1.0)
+      val outRight  = mkPan(tpe = 'R', pos = +1.0)
 
-      (tx.newHandle(tl), tx.newHandle(global)) //  tx.newHandle(fdInObj), tx.newHandle(fdOutObj)
+      (tx.newHandle(tl), tx.newHandle(outLeft), tx.newHandle(outRight))
     }
 
     // ObjKeys.attrFadeIn
@@ -246,7 +256,7 @@ object UnrollQuadTree {
       in.copy(sources = sourcesOut)
     }
 
-    def mkProc(node: PlacedNode)(implicit tx: S#Tx): Proc.Obj[S] = {
+    def mkProc(node: PlacedNode, out: Proc[S])(implicit tx: S#Tx): Proc.Obj[S] = {
       val graph0  = node.node.input.graph
       val p       = Proc[S]
       import synth._
@@ -254,10 +264,12 @@ object UnrollQuadTree {
 
       def mkOut(in: GE): ScanOut = {
         import synth._
+        import ugen._
         val bad   = CheckBadValues.ar(in, post = 0)
         val gate  = Gate.ar(in, bad sig_== 0)
-        val lim   = Limiter.ar(LeakDC.ar(gate))
-        val sig   = lim * FadeInOut.ar * (1 - Attribute.kr(ObjKeys.attrMute, 0)) * Attribute.kr(ObjKeys.attrGain, 1)
+        val lim   = LeakDC.ar(Limiter.ar(LeakDC.ar(gate), dur = 0.01))
+        val env   = DelayN.ar(FadeIn.ar, 0.02, 0.02) * FadeOut.ar
+        val sig   = lim * env * (1 - Attribute.kr(ObjKeys.attrMute, 0)) * Attribute.kr(ObjKeys.attrGain, 1)
         ScanOut(sig)
       }
 
@@ -303,7 +315,7 @@ object UnrollQuadTree {
 
       p.graph() = SynthGraphs.newConst[S](graph)
       val scanOut = p.scans.add("out")
-      scanOut.addSink(globalProcH().scans.add("in"))
+      scanOut.addSink(out.scans.add("in"))
 
       val procObj = Obj(Proc.Elem(p))
       import proc.Implicits._
@@ -327,7 +339,7 @@ object UnrollQuadTree {
         val tl    = timelineH()
         var prev  = prevH.map(_.apply())
         var pt    = pt0
-        nodes.foreach { node =>
+        nodes.iterator.zipWithIndex.foreach { case (node, ni) =>
           import numbers.Implicits._
           val dist    = math.sqrt(node.coord.distanceSq(pt))
           val distN   = dist.toDouble / maxDist
@@ -356,7 +368,7 @@ object UnrollQuadTree {
 
           val span    = Span(startTime, startTime + fadeInLen + fadeOutLen)
           val spanEx  = SpanLikeEx.newVar(SpanLikeEx.newConst[S](span))
-          val procObj = mkProc(node)
+          val procObj = mkProc(node, out = if (ni % 2 == 0) outLeftH() else outRightH())
 
           // println(s"Add at $startTime.")
 
