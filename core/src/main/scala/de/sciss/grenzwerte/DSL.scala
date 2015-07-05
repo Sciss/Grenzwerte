@@ -18,6 +18,7 @@ import de.sciss.lucre.event.Sys
 import de.sciss.lucre.geom.IntPoint2D
 import de.sciss.mellite.gui.ObjView
 import de.sciss.mellite.{Color, Workspace}
+import de.sciss.span.Span
 import de.sciss.synth.proc.Implicits._
 import de.sciss.synth.proc.{Folder, FolderElem, Obj, Proc, Timeline}
 
@@ -67,23 +68,26 @@ object DSL {
 
   implicit class MyTimelineOps[S <: Sys[S]](private val tl: Timeline[S]) extends AnyVal {
     private def procs(time: Long)(filter: Option[Color] => Boolean)
-                     (implicit tx: S#Tx): Vec[Proc.Obj[S]] =
-      tl.intersect(time).flatMap { case (span, xs) =>
-        xs.map(_.value).collect {
-          case Proc.Obj(objT) if filter(objT.color) => objT
-        }
+                     (implicit tx: S#Tx): Vec[(Span, Proc.Obj[S])] =
+      tl.intersect(time).flatMap {
+        case (span @ Span(_, _), xs) =>
+          xs.map(_.value).collect {
+            case Proc.Obj(objT) if filter(objT.color) => (span, objT)
+          }
+        case _ => Nil
+
       } .toIndexedSeq
 
-    def placed  (time: Long)(implicit tx: S#Tx): Vec[Proc.Obj[S]] =  procs(time)(_.isDefined)
-    def unplaced(time: Long)(implicit tx: S#Tx): Vec[Proc.Obj[S]] =  procs(time)(_.isEmpty  )
+    def placed  (time: Long)(implicit tx: S#Tx): Vec[(Span, Proc.Obj[S])] =  procs(time)(_.isDefined)
+    def unplaced(time: Long)(implicit tx: S#Tx): Vec[(Span, Proc.Obj[S])] =  procs(time)(_.isEmpty  )
 
-    def nearestInLayerBefore(layer: Int, time: Long)(implicit tx: S#Tx): Option[Proc.Obj[S]] = {
-      @tailrec def loop(time0: Long): Option[Proc.Obj[S]] = {
+    def nearestInLayerBefore(layer: Int, time: Long)(implicit tx: S#Tx): Option[(Span, Proc.Obj[S])] = {
+      @tailrec def loop(time0: Long): Option[(Span, Proc.Obj[S])] = {
         val time1Opt = tl.nearestEventBefore(time0 - 1)
         time1Opt match {
           case Some(time1) =>
             assert(time1 < time0)
-            val inLayer = tl.placed(time1).filter(_.layer == layer)
+            val inLayer = tl.placed(time1).filter(_._2.layer == layer)
             if (inLayer.nonEmpty) inLayer.headOption /* we drop span info, so what */ else loop(time1)
 
           case None => None

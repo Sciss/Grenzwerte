@@ -119,6 +119,8 @@ object MakeLayers {
 
       var lastProg = 0
 
+      var lastLayerProc = Map.empty[Int, (Span, Proc.Obj[S])]
+
       @tailrec def loop(time: Long): Unit = {
         val prog = (time.toDouble / tlLen * 100).toInt
         while (lastProg < prog) {
@@ -126,13 +128,13 @@ object MakeLayers {
           lastProg += 1
         }
 
-        tl.unplaced(time).foreach { succ =>
+        tl.unplaced(time).foreach { case (succSpan, succ) =>
           succ.quadLoc.foreach { succLoc =>
             val occupied    = tl.placed(time)
-            val freeLayers0 = allLayers diff occupied.map(_.layer)
+            val freeLayers0 = allLayers diff occupied.map(_._2.layer)
             val freeLayers  = if (freeLayers0.nonEmpty) freeLayers0 else allLayers
             val distances: Vec[Long] = freeLayers.map { layer =>
-              tl.nearestInLayerBefore(layer, time).fold(Long.MaxValue) { pred =>
+              lastLayerProc.get(layer).fold(Long.MaxValue) { case (span, pred) =>
                 val predLoc = pred.quadLoc
                 predLoc.fold(Long.MaxValue)(succLoc distanceSq _)
               }
@@ -147,6 +149,7 @@ object MakeLayers {
               case _ =>
             }
             succOut ~> layerOuts(layer).elem.peer.scans.add("in")
+            lastLayerProc += layer -> (succSpan, succ)
           }
         }
         // XXX TODO --- apparently we get a time >= input not a time > input
