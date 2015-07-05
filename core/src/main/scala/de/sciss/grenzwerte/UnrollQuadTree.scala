@@ -214,10 +214,10 @@ object UnrollQuadTree {
         global.graph()  = SynthGraphs.newConst(glGraph)
         global.scans.add("in")
 
-        val gbObj       = Obj(Proc.Elem(global))
-        gbObj.name      = s"Out-$tpe"
-        gbObj.attr.put("pan", Obj(DoubleElem(DoubleEx.newVar(DoubleEx.newConst[S](pos)))))
-        tl.add(SpanLikeEx.newConst[S](Span.All), gbObj)
+        val glObj       = Obj(Proc.Elem(global))
+        glObj.name      = s"Out-$tpe"
+        glObj.attr.put("pan", Obj(DoubleElem(DoubleEx.newVar(DoubleEx.newConst[S](pos)))))
+        tl.add(SpanLikeEx.newConst[S](Span.All), glObj)
         global
       }
 

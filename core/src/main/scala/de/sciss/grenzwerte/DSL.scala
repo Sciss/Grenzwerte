@@ -1,7 +1,19 @@
+/*
+ *  DSL.scala
+ *  (Grenzwerte)
+ *
+ *  Copyright (c) 2015 Hanns Holger Rutz. All rights reserved.
+ *
+ *  This software is published under the GNU General Public License v3+
+ *
+ *
+ *  For further information, please contact Hanns Holger Rutz at
+ *  contact@sciss.de
+ */
+
 package de.sciss.grenzwerte
 
 import de.sciss.kollflitz.Vec
-import de.sciss.lucre.bitemp.BiGroup.TimedElem
 import de.sciss.lucre.event.Sys
 import de.sciss.lucre.geom.IntPoint2D
 import de.sciss.mellite.gui.ObjView
@@ -11,6 +23,7 @@ import de.sciss.synth.proc.{Folder, FolderElem, Obj, Proc, Timeline}
 
 import scala.annotation.tailrec
 import scala.collection.breakOut
+import scala.util.Try
 
 object DSL {
   /** Retrieves or creates (if not found) a folder in the workspace root. */
@@ -42,12 +55,14 @@ object DSL {
   implicit class MyObjectOps[S <: Sys[S]](private val obj: Obj[S]) extends AnyVal {
     def color(implicit tx: S#Tx): Option[Color] = obj.attr[Color.Elem](ObjView.attrColor).map(_.value)
     def layer(implicit tx: S#Tx): Int           = color.fold(-1)(Color.Palette.indexOf)
-    def quadLoc(implicit tx: S#Tx): IntPoint2D  = {
+    def quadLoc(implicit tx: S#Tx): Option[IntPoint2D] = {
       val n = obj.name
       // s"(${node.coord.x},${node.coord.y})"
       val i = n.indexOf(')')
-      val x :: y :: Nil = n.substring(i, i).split(',').map(_.toInt)(breakOut): List[Int]
-      IntPoint2D(x, y)
+      Try {
+        val x :: y :: Nil = n.substring(i, i).split(',').map(_.toInt)(breakOut): List[Int]
+        IntPoint2D(x, y)
+      } .toOption
     }
   }
 
