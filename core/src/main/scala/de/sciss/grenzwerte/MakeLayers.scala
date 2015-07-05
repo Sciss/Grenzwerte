@@ -24,7 +24,7 @@ import de.sciss.span.Span
 import de.sciss.synth
 import de.sciss.synth.proc.graph.{Attribute, ScanInFix}
 import de.sciss.synth.{SynthGraph, proc}
-import de.sciss.synth.proc.{IntElem, SynthGraphs, ObjKeys, Scan, Obj, Proc}
+import de.sciss.synth.proc.{Timeline, IntElem, SynthGraphs, ObjKeys, Scan, Obj, Proc}
 
 import scala.annotation.tailrec
 import scala.util.Try
@@ -75,7 +75,7 @@ object MakeLayers {
         println(workspace.root.iterator.map(_.name).toIndexedSeq.mkString("Objects in root:\n", ", ", ""))
       }
       val tl    = tlT.get
-      val tlLen = tl.nearestEventBefore(BiGroup.MaxCoordinate).getOrElse(0L)
+      val tlLen = tl.nearestEventBefore(BiGroup.MaxCoordinate - 2).getOrElse(0L)
 
       if (removeColors) {
         tl.iterator.foreach { case (_, xs) =>
@@ -91,7 +91,7 @@ object MakeLayers {
 
       val layerOuts: Vec[Proc.Obj[S]] = allLayers.map { layer =>
         val name = s"layer-${layer + 1}"
-        val existing = tl.intersect(BiGroup.MinCoordinate).flatMap(_._2.map(_.value)).toList.collectFirst {
+        val existing = tl.intersect(BiGroup.MinCoordinate + 2).flatMap(_._2.map(_.value)).toList.collectFirst {
           case Proc.Obj(objT) if objT.name == name => objT
         }
         existing.getOrElse {
@@ -118,7 +118,6 @@ object MakeLayers {
       }
 
       var lastProg = 0
-      println("_" * 100)
 
       @tailrec def loop(time: Long): Unit = {
         val prog = (time.toDouble / tlLen * 100).toInt
@@ -150,13 +149,18 @@ object MakeLayers {
             succOut ~> layerOuts(layer).elem.peer.scans.add("in")
           }
         }
-        tl.nearestEventAfter(time) match {
-          case Some(time1) => loop(time1)
+        // XXX TODO --- apparently we get a time >= input not a time > input
+        tl.nearestEventAfter(time + 1) match {
+          case Some(time1) =>
+            assert(time1 > time)
+            loop(time1)
           case None =>
         }
       }
 
       val time0 = tl.nearestEventAfter(-1L).getOrElse(sys.error(s"Timeline is empty?!"))
+      println(f"Start time at ${time0.framesSeconds}%1.1f sec.; end = ${tlLen.framesSeconds}%1.1f sec.")
+      println("_" * 100)
       loop(time0)
     }
 

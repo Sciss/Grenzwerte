@@ -23,7 +23,6 @@ import de.sciss.synth.proc.{Folder, FolderElem, Obj, Proc, Timeline}
 
 import scala.annotation.tailrec
 import scala.collection.breakOut
-import scala.util.Try
 
 object DSL {
   /** Retrieves or creates (if not found) a folder in the workspace root. */
@@ -59,10 +58,10 @@ object DSL {
       val n = obj.name
       // s"(${node.coord.x},${node.coord.y})"
       val i = n.indexOf(')')
-      Try {
-        val x :: y :: Nil = n.substring(i, i).split(',').map(_.toInt)(breakOut): List[Int]
-        IntPoint2D(x, y)
-      } .toOption
+      if (i < 0) None else {
+        val x :: y :: Nil = n.substring(1, i).split(',').map(_.toInt)(breakOut): List[Int]
+        Some(IntPoint2D(x, y))
+      }
     }
   }
 
@@ -80,9 +79,10 @@ object DSL {
 
     def nearestInLayerBefore(layer: Int, time: Long)(implicit tx: S#Tx): Option[Proc.Obj[S]] = {
       @tailrec def loop(time0: Long): Option[Proc.Obj[S]] = {
-        val time1Opt = tl.nearestEventBefore(time0)
+        val time1Opt = tl.nearestEventBefore(time0 - 1)
         time1Opt match {
           case Some(time1) =>
+            assert(time1 < time0)
             val inLayer = tl.placed(time1).filter(_.layer == layer)
             if (inLayer.nonEmpty) inLayer.headOption /* we drop span info, so what */ else loop(time1)
 
@@ -91,5 +91,12 @@ object DSL {
       }
       loop(time)
     }
+  }
+
+  implicit class FramesSeconds(private val n: Long) extends AnyVal { me =>
+    /** Interprets the number as a frame number, and converts it to seconds,
+      * based on the standard `Timeline` sample-rate.
+      */
+    def framesSeconds: Double = n.toDouble / Timeline.SampleRate
   }
 }
