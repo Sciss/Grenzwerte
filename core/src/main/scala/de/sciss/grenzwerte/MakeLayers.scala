@@ -19,7 +19,7 @@ import de.sciss.lucre.bitemp.{BiGroup, SpanLike => SpanLikeEx}
 import de.sciss.lucre.expr.{Int => IntEx}
 import de.sciss.lucre.stm.store.BerkeleyDB
 import de.sciss.mellite.gui.ObjView
-import de.sciss.mellite.{Color, Workspace}
+import de.sciss.mellite.{Mellite, Color, Workspace}
 import de.sciss.span.Span
 import de.sciss.synth
 import de.sciss.synth.proc.graph.{Attribute, ScanInFix}
@@ -57,7 +57,10 @@ object MakeLayers {
     parser.parse(args, Config()).fold(sys.exit(1))(run)
   }
 
+  val DEBUG = false
+
   def run(config: Config): Unit = {
+    de.sciss.mellite.initTypes()
     import config._
     val wsF = (file("workspaces") / session).replaceExt("mllt")
     require(wsF.isDirectory, s"Session $wsF not found")
@@ -78,11 +81,13 @@ object MakeLayers {
       val tlLen = tl.nearestEventBefore(BiGroup.MaxCoordinate - 2).getOrElse(0L)
 
       if (removeColors) {
+        println("Removing colors...")
         tl.iterator.foreach { case (_, xs) =>
           xs.foreach { timed =>
             timed.value.attr.remove(ObjView.attrColor)
           }
         }
+        println("Done.")
       }
 
       val layerColors: Vec[Obj[S]] = Color.Palette.map { colr =>
@@ -129,9 +134,13 @@ object MakeLayers {
         }
 
         tl.unplaced(time).foreach { case (succSpan, succ) =>
+          if (DEBUG) println(s"\nAT $time WE FIND UNPLACED $succSpan | ${succ.name}")
           succ.quadLoc.foreach { succLoc =>
             val occupied    = tl.placed(time)
+            if (DEBUG) println(s"We FIND PLACED ${occupied.map(_._2.name).mkString(", ")}")
             val freeLayers0 = allLayers diff occupied.map(_._2.layer)
+            if (DEBUG) println(s"FREE LAYERS ARE ${freeLayers0.mkString(", ")}")
+            if (DEBUG) println(s"LAST LAYERS EXIST IN ${lastLayerProc.keys.toList.sorted.mkString(", ")}")
             val freeLayers  = if (freeLayers0.nonEmpty) freeLayers0 else allLayers
             val distances: Vec[Long] = freeLayers.map { layer =>
               lastLayerProc.get(layer).fold(Long.MaxValue) { case (span, pred) =>
@@ -139,8 +148,10 @@ object MakeLayers {
                 predLoc.fold(Long.MaxValue)(succLoc distanceSq _)
               }
             }
+            if (DEBUG) println(s"DISTANCES ARE ${distances.zipWithIndex.map { case (d, i) => s"$i: $d" }.mkString(", ")}")
             val minDistance = distances.min
-            val layer = distances.indexOf(minDistance)
+            val layer = freeLayers(distances.indexOf(minDistance))
+            if (DEBUG) println(s"YIELD A BEST LAYER OF $layer")
             // assign layer: assign color, disconnect scan-out, reconnect scan-out
             succ.attr.put(ObjView.attrColor, layerColors(layer))
             val succOut = succ.elem.peer.scans.add("out")
