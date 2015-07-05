@@ -15,17 +15,18 @@ package de.sciss.grenzwerte
 
 import de.sciss.file._
 import de.sciss.lucre.bitemp.{SpanLike => SpanLikeEx}
-import de.sciss.lucre.expr.{Expr, Double => DoubleEx}
+import de.sciss.lucre.expr.{Expr, Double => DoubleEx, Int => IntEx}
 import de.sciss.lucre.geom.{IntDistanceMeasure2D, IntPoint2D}
 import de.sciss.lucre.stm
 import de.sciss.lucre.stm.store.BerkeleyDB
 import de.sciss.mellite.Workspace
+import de.sciss.mellite.gui.TimelineObjView
 import de.sciss.mutagentx.SOMQuadTree.{PlacedNode, QuadGraphDB}
 import de.sciss.mutagentx.{SOMQuadTree, Vec}
 import de.sciss.processor.Processor
 import de.sciss.span.{Span, SpanLike}
 import de.sciss.synth.proc.graph.{Attribute, FadeIn, FadeOut, ScanInFix, ScanOut}
-import de.sciss.synth.proc.{DoubleElem, Confluent, FadeSpec, Obj, ObjKeys, Proc, SynthGraphs, Timeline}
+import de.sciss.synth.proc.{IntElem, DoubleElem, Confluent, FadeSpec, Obj, ObjKeys, Proc, SynthGraphs, Timeline}
 import de.sciss.synth.{Lazy, SynthGraph, proc}
 import de.sciss.{numbers, synth}
 
@@ -54,7 +55,10 @@ object UnrollQuadTree {
                     clump     : Int     = 16384,
                     fadeIn    : Double  = 0.01,
                     fadeOut   : Double  = 3.0,
-                    maxNodes  : Int     = 0)
+                    maxNodes  : Int     = 0,
+                    skip      : Int     = 0,
+                    maxDuration: Double = 0.0,
+                    timeline  : String = "Timeline")
 
   def main(args: Array[String]): Unit = {
     val parser = new scopt.OptionParser[Config]("UnrollQuadTree") {
@@ -91,6 +95,15 @@ object UnrollQuadTree {
         (x, c) => c.copy(maxNodes = x) } validate { x =>
         if (x >= 0) success else failure("0 <= max-nodes")
       }
+      opt[Int]('k', "skip") text "skip number of nodes before writing them" action {
+        (x, c) => c.copy(skip = x) } validate { x =>
+        if (x >= 0) success else failure("0 <= skip")
+      }
+      opt[Double]("max-duration") text "maximum duration in seconds (0 for no limit)" action {
+        (x, c) => c.copy(maxDuration = x) } validate { x =>
+        if (x >= 0) success else failure("0 <= max-duration")
+      }
+      opt[String]('t', "timeline") text "timeline name" action { (x, c) => c.copy(timeline = x) }
     }
     parser.parse(args, Config()).fold(sys.exit(1))(run)
   }
@@ -150,7 +163,7 @@ object UnrollQuadTree {
     val workspace = wsFun(wsF, BerkeleyDB.Config())
 
     val fullSize0 = quadDB.system.step { implicit tx => quadDB.handle().size }
-    val fullSize  = if (config.maxNodes == 0) fullSize0 else math.min(fullSize0, config.maxNodes)
+    val fullSize  = if (config.maxNodes == 0) fullSize0 else math.min(fullSize0, config.maxNodes + config.skip)
 
     println(s"Quad-tree size is $fullSize0; will take $fullSize nodes.")
 
@@ -183,7 +196,7 @@ object UnrollQuadTree {
       val tl        = Timeline[S]
       val tlObj     = Obj(Timeline.Elem(tl))
       import proc.Implicits._
-      tlObj.name    = "Timeline"
+      tlObj.name    = config.timeline
       workspace.root.addLast(tlObj)
 
       def mkPan(tpe: Char, pos: Double): Proc[S] = {
@@ -262,6 +275,10 @@ object UnrollQuadTree {
       import synth._
       import ugen._
 
+      // the disadvantage of this is that all the
+      // intermediary GEs do not end up in the
+      // top level `sources` list, making the
+      // job difficult for source code regeneration...
       def mkOut(in: GE): ScanOut = {
         import synth._
         import ugen._
@@ -330,12 +347,17 @@ object UnrollQuadTree {
 
       procObj.attr.put(ObjKeys.attrFadeIn , fdInObj )
       procObj.attr.put(ObjKeys.attrFadeOut, fdOutObj)
+      procObj.attr.put(TimelineObjView.attrTrackHeight, Obj(IntElem(IntEx.newConst[S](1))))
       procObj
     }
 
+    val maxFrames = (config.maxDuration * Timeline.SampleRate + 0.5).toLong
+
     def putClump(pt0: IntPoint2D, prevH: Option[stm.Source[S#Tx, Expr[S, SpanLike]]],
-                 nodes: Vec[PlacedNode]): (IntPoint2D, Option[stm.Source[S#Tx, Expr[S, SpanLike]]]) = {
+                 nodes: Vec[PlacedNode], skip: Int, added: Int): (IntPoint2D, Option[stm.Source[S#Tx, Expr[S, SpanLike]]], Int) = {
+      // println(s"PUT CLUMP SKIP = $skip ADDED = $added")
       workspace.cursor.step { implicit tx =>
+        var added1 = added
         val tl    = timelineH()
         var prev  = prevH.map(_.apply())
         var pt    = pt0
@@ -351,37 +373,52 @@ object UnrollQuadTree {
                 case hs: Span.HasStart => hs.start
                 case _ => 0L
               }) + dFrames
+            res
+          }
 
-            prevObj match {
-              case Expr.Var(vr) =>
+          if (maxFrames == 0L || startTime < maxFrames) {
+            prev match {
+              case Some(Expr.Var(vr)) =>
                 val pStart = vr().value match {
                   case phs: Span.HasStart => phs.start
                   case _ => 0L
                 }
-                vr() = SpanLikeEx.newConst(Span(pStart, pStart + math.min(fadeInLen, dFrames) + fadeOutLen))
+                vr() = SpanLikeEx.newConst(Span(pStart, pStart + math.max(fadeInLen + fadeOutLen, dFrames)))
+
+              case _ =>
             }
 
-            res
+            pt = node.coord
+
+            if (ni >= skip) {
+              val span    = Span(startTime, startTime + fadeInLen + fadeOutLen)
+              val spanEx  = SpanLikeEx.newVar(SpanLikeEx.newConst[S](span))
+              val procObj = mkProc(node, out = if (ni % 2 == 0) outLeftH() else outRightH())
+
+              // println(s"Add at $startTime.")
+
+              val tracksTaken: Set[Int] = tl.intersect(span).flatMap { case (_, xs) =>
+                  xs.flatMap(_.value.attr[IntElem](TimelineObjView.attrTrackIndex).map(_.value))
+              } .toSet
+
+              val trackIdx = (0 to 256).find(!tracksTaken.contains(_))
+              trackIdx.foreach { idx =>
+                procObj.attr.put(TimelineObjView.attrTrackIndex, Obj(IntElem(IntEx.newConst[S](idx))))
+              }
+              val next = tl.add(spanEx, procObj)
+              added1 += 1
+              prev = Some(next.span)
+            }
           }
-
-          pt = node.coord
-
-          val span    = Span(startTime, startTime + fadeInLen + fadeOutLen)
-          val spanEx  = SpanLikeEx.newVar(SpanLikeEx.newConst[S](span))
-          val procObj = mkProc(node, out = if (ni % 2 == 0) outLeftH() else outRightH())
-
-          // println(s"Add at $startTime.")
-
-          val next = tl.add(spanEx, procObj)
-          prev = Some(next.span)
         }
         implicit val spanSer = SpanLikeEx.serializer[S]
         val nextH = prev.map(tx.newHandle(_)): Option[stm.Source[S#Tx, Expr[S, SpanLike]]]
-        (pt, nextH)
+        (pt, nextH, added1)
       }
     }
 
-    @tailrec def loop(pt0: IntPoint2D, prevH: Option[stm.Source[S#Tx, Expr[S, SpanLike]]], done: Int): Unit = {
+    @tailrec def loop(pt0: IntPoint2D, prevH: Option[stm.Source[S#Tx, Expr[S, SpanLike]]], done: Int,
+                      added: Int): Int = {
       val nodes = getClump(pt0, limit = fullSize - done)
 
       println(s"getClump($pt0, limit = ${fullSize - done}) -> ${nodes.size} nodes")
@@ -390,16 +427,18 @@ object UnrollQuadTree {
       self.progress = done1.toDouble / fullSize
       self.checkAborted()
 
-      if (nodes.nonEmpty) {
-        val (pt1, nextH) = putClump(pt0, prevH, nodes)
-        loop(pt0 = pt1, prevH = nextH, done = done1)
+      if (nodes.isEmpty) added else {
+        val (pt1, nextH, added1) = putClump(pt0, prevH, nodes, skip = math.max(0, config.skip - done), added = added)
+        loop(pt0 = pt1, prevH = nextH, done = done1, added = added1)
       }
     }
 
     val startPt = IntPoint2D((config.startX * extent * 2 + 0.5).toInt,
                              (config.startY * extent * 2 + 0.5).toInt)
 
-    loop(pt0 = startPt, prevH = None, done = 0)
+    val numAdded = loop(pt0 = startPt, prevH = None, done = 0, added = 0)
+
+    println(s"Added $numAdded regions.")
 
     workspace     .close()
     quadDB.system .close()

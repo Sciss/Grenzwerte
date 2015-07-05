@@ -5,7 +5,8 @@ def baseNameL = baseName.toLowerCase
 lazy val projectVersion   = "0.1.0-SNAPSHOT"
 
 lazy val mutagenVersion   = "0.1.1-SNAPSHOT"
-lazy val melliteVersion   = "1.5.0"
+lazy val melliteVersion   = "1.6.0-SNAPSHOT"
+lazy val ugensVersion     = "1.13.3-SNAPSHOT"
 
 lazy val commonSettings = Seq(
   version            := projectVersion,
@@ -23,7 +24,8 @@ lazy val core = Project(
     name        := s"$baseName-sound",
     libraryDependencies ++= Seq(
       "de.sciss"  %% "mutagentx"  % mutagenVersion,
-      "de.sciss"  %% "mellite"    % melliteVersion
+      "de.sciss"  %% "mellite"    % melliteVersion,
+      "de.sciss"  %  "scalacolliderugens-spec" % ugensVersion
     )
   )
 )
