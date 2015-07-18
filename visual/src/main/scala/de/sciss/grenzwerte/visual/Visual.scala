@@ -496,13 +496,27 @@ object Visual {
       }
     }
 
-    def saveFrameAsPNG(file: File): Unit = saveFrameAsPNG(file, width = _dsp.getWidth, height = _dsp.getHeight)
+    def saveFrameAsPNG(file: File): Unit = {
+      // saveFrameAsPNG(file, width = _dsp.getWidth, height = _dsp.getHeight)
+      val r2d = _vis.getBounds(GROUP_GRAPH)
+      val r   = display.getInverseTransform.createTransformedShape(r2d).getBounds
+      // val r   = r2d.getBounds
+      // println(s"scale = ${display.getScale}")
+      val x = r.x // display.getDisplayX.toInt
+      val y = r.y // display.getDisplayY.toInt
+      println(s"x = $x, y = $y, width = ${r.width}, height = ${r.height}")
+      display.pan(-x, -y) // panToAbs(new Point2D.Double(r.getCenterX, r.getCenterY))
+      saveFrameAsPNG(file, /* x = x, y = y, */ width = r.width /* + 2 */, height = r.height /* + 2 */)
+    }
 
-    def saveFrameAsPNG(file: File, width: Int, height: Int): Unit = {
+    // def saveFrameAsPNG(file: File, width: Int, height: Int): Unit = saveFrameAsPNG(file, 0, 0, width, height)
+
+    def saveFrameAsPNG(file: File, /* x: Int, y: Int, */ width: Int, height: Int): Unit = {
       requireEDT()
       val bImg  = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
       val g     = bImg.createGraphics()
       try {
+        // if (x != 0 || y != 0) g.translate(-x, -y)
         _dsp.damageReport() // force complete redrawing
         _dsp.paintDisplay(g, new Dimension(width, height))
         ImageIO.write(bImg, "png", file)

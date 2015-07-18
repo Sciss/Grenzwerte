@@ -13,6 +13,7 @@
 
 package de.sciss.grenzwerte
 
+import de.sciss.file._
 import de.sciss.grenzwerte.visual.Visual
 import de.sciss.lucre.bitemp.{SpanLike => SpanLikeEx}
 import de.sciss.lucre.{stm, data}
@@ -86,6 +87,7 @@ object MakeTrace {
           for (i <- 0 to 400) {
             vis.layout.runOnce()
           }
+          vis.saveFrameAsPNG(userHome / "Documents" / "temp" / "test_frame.png")
         }
       }
     }
