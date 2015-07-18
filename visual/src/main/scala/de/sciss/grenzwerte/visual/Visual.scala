@@ -134,6 +134,12 @@ object Visual {
       }
     }
 
+    def clearChromosomes()(implicit tx: S#Tx): Unit = {
+      implicit val itx = tx.peer
+      map.values.foreach(_.dispose())
+      map.clear()
+    }
+
     def display       : Display       = _dsp
     def visualization : Visualization = _vis
     def graph         : PGraph        = _g
@@ -645,4 +651,5 @@ object Visual {
 trait Visual[S <: Sys[S]] extends Vis[S] {
   def insertChromosome(c: Chromosome[S])(implicit tx: S#Tx): Unit
   def layout: MyForceDirectedLayout // ForceDirectedLayout
+  def clearChromosomes()(implicit tx: S#Tx): Unit
 }

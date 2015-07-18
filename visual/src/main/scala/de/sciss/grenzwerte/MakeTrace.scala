@@ -15,36 +15,32 @@ package de.sciss.grenzwerte
 
 import de.sciss.file._
 import de.sciss.grenzwerte.visual.Visual
-import de.sciss.lucre.bitemp.{SpanLike => SpanLikeEx}
-import de.sciss.lucre.{stm, data}
+import de.sciss.lucre.bitemp.BiGroup
 import de.sciss.lucre.event.{InMemory, Sys}
-import de.sciss.lucre.expr.{Int => IntEx}
+import de.sciss.lucre.geom.IntPoint2D
+import de.sciss.lucre.stm.store.BerkeleyDB
 import de.sciss.lucre.swing.deferTx
-import de.sciss.mutagentx.{Chromosome, Edge, Topology, UGens, Vertex}
-import de.sciss.swingplus
+import de.sciss.lucre.{data, stm}
+import de.sciss.mellite.Workspace
+import de.sciss.mutagentx.SOMQuadTree.Coord
+import de.sciss.mutagentx.{Chromosome, Edge, Topology, UGens, Vec, Vertex}
+import de.sciss.span.Span
 import de.sciss.swingplus.CloseOperation
-import de.sciss.synth
+import de.sciss.{swingplus, synth}
+import de.sciss.synth.proc.{Obj, Proc}
 import de.sciss.synth.ugen.{BinaryOpUGen, Constant, UnaryOpUGen}
-import de.sciss.synth.{SynthGraph, UGenSource}
+import de.sciss.synth.{SynthGraph, UGenSource, proc}
 
-import scala.swing.{Swing, Frame}
+import scala.annotation.tailrec
+import scala.swing.{Component, Frame, Swing}
+import scala.util.Try
 
 object MakeTrace {
-  case class Config(session: String = "second", timeline: String = "T-1",
-                    width: Int = 1920, height: Int = 1080, fps: Int = 25, speed: Double = 1.0,
-                    durationFactor: Double = 8.0)
-
-  def main(args: Array[String]): Unit = {
-    val parser = new scopt.OptionParser[Config]("MakeTrace") {
-      opt[String]('s', "session") text "session name" action { (x, c) => c.copy(session = x) }
-//      opt[Unit]('r', "remove-colors") text "initially clear old color attributes" action {
-//        (_, c) => c.copy(removeColors = true)
-//      }
-      opt[String]('t', "timeline") text "timeline name" action { (x, c) => c.copy(timeline = x) }
-    }
-    // parser.parse(args, Config()).fold(sys.exit(1))(run)
-    testVis()
-  }
+  case class Config(session : File = file("workspaces")/"second.mllt",
+                    output  : File = file("image_out"),
+                    timeline: String = "T-1"
+                    /* width: Int = 1920, height: Int = 1080, fps: Int = 25, speed: Double = 1.0, */
+                    /* durationFactor: Double = 8.0 */)
 
   implicit object VertexOrd extends data.Ordering[InMemory#Tx, Vertex[InMemory]] {
     type S = InMemory
@@ -54,6 +50,25 @@ object MakeTrace {
       val bid = stm.Escape.inMemoryID(b.id)
       if (aid < bid) -1 else if (aid > bid) 1 else 0
     }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val parser = new scopt.OptionParser[Config]("MakeTrace") {
+      opt[File]('s', "session") text "session file"     action { (x, c) => c.copy(session = x) }
+      opt[File]('d', "output" ) text "output directory" action { (x, c) => c.copy(output  = x) }
+//      opt[Unit]('r', "remove-colors") text "initially clear old color attributes" action {
+//        (_, c) => c.copy(removeColors = true)
+//      }
+      opt[String]('t', "timeline") text "timeline name" action { (x, c) => c.copy(timeline = x) }
+    }
+    parser.parse(args, Config()).fold(sys.exit(1)) { config =>
+      type S = InMemory
+      implicit val system = InMemory()
+      val vis = system.step { implicit tx => Visual[S] }
+      Swing.onEDT(mkFrame(vis.component))
+      run(config, vis)
+    }
+    // testVis()
   }
 
   def testVis(): Unit = {
@@ -72,26 +87,28 @@ object MakeTrace {
       val vis = Visual[S]
       vis.insertChromosome(c)
       deferTx {
-        new Frame { me =>
-          contents = vis.component
-          pack().centerOnScreen()
-          open()
-          import swingplus.Implicits._
-          me.defaultCloseOperation = CloseOperation.Exit
-          // vis.forceSimulator.setSpeedLimit(100f)
-          // vis.layout
-          vis.animationStep()
-          // vis.runAnimation = true
-        }
+        val f = mkFrame(vis.component)
+        vis.animationStep()
         Swing.onEDT {
-          for (i <- 0 to 400) {
-            vis.layout.runOnce()
+          vis.visualization.synchronized {
+            for (i <- 1 to 400) {
+              vis.layout.runOnce()
+            }
           }
           vis.saveFrameAsPNG(userHome / "Documents" / "temp" / "test_frame.png")
         }
       }
     }
   }
+
+  def mkFrame(c: Component): Frame =
+    new Frame { me =>
+      contents = c
+      pack().centerOnScreen()
+      open()
+      import swingplus.Implicits._
+      me.defaultCloseOperation = CloseOperation.Exit
+    }
 
   /** Note -- this is not a reliable or complete reproduction right now. */
   def mkChromosome[S <: Sys[S]](g: SynthGraph)(implicit tx: S#Tx, ord: data.Ordering[S#Tx, Vertex[S]]): Chromosome[S] = {
@@ -138,85 +155,114 @@ object MakeTrace {
   }
 
   val DEBUG = false
-/*
-  def run(config: Config): Unit = {
+
+  def mkImage[I <: Sys[I]](dir: File, pc: ProcCoord, time: Long, count: Int, vis: Visual[I])
+                          (implicit cursor: stm.Cursor[I], ord: data.Ordering[I#Tx, Vertex[I]]): Unit = {
+    cursor.step { implicit tx =>
+      val c = mkChromosome[I](pc.graph)
+      vis.clearChromosomes()
+      vis.insertChromosome(c)
+    }
+    Swing.onEDTWait {
+      vis.visualization.synchronized {
+        for (i <- 1 to 400) {
+          vis.layout.runOnce()
+        }
+      }
+      val name = s"frame${count}_${time}_${pc.coord.x}_${pc.coord.x}.png"
+      vis.saveFrameAsPNG(dir / name)
+    }
+  }
+
+  def run[I <: Sys[I]](config: Config, vis: Visual[I])(implicit visCursor: stm.Cursor[I],
+                                                       ord: data.Ordering[I#Tx, Vertex[I]]): Unit = {
     de.sciss.mellite.initTypes()
     import config._
-    val wsF = (file("workspaces") / session).replaceExt("mllt")
+    val wsF = session // (file("workspaces") / session).replaceExt("mllt")
     require(wsF.isDirectory, s"Session $wsF not found")
     implicit val workspace = Workspace.Confluent.read(wsF, BerkeleyDB.Config())
-    import workspace.{S, cursor}
-
-    import proc.Implicits._
     import DSL._
+    import proc.Implicits._
+    import workspace.cursor
 
-    cursor.step { implicit tx =>
-      val tlT   = Try(getTimeline(timeline))
+    val (tlLen, tlH) = cursor.step { implicit tx =>
+      val tlT = Try(getTimeline(timeline))
       if (tlT.isFailure) {
         println(workspace.root.iterator.map(_.name).toIndexedSeq.mkString("Objects in root:\n", ", ", ""))
       }
-      val tl    = tlT.get
-      val tlLen = tl.nearestEventBefore(BiGroup.MaxCoordinate - 2).getOrElse(0L)
+      val tl = tlT.get
+      val _tlLen = tl.nearestEventBefore(BiGroup.MaxCoordinate - 2).getOrElse(0L)
+      (_tlLen, tx.newHandle(tl))
+    }
+    var lastProg = 0
 
-      var lastProg = 0
-
-      var lastLayerProc = Map.empty[Int, (Span, Proc.Obj[S])]
-
-      @tailrec def loop(time: Long, movieTime: Double): Unit = {
-        val prog = (time.toDouble / tlLen * 100).toInt
-        while (lastProg < prog) {
-          print('#')
-          lastProg += 1
-        }
-
-        tl.unplaced(time).foreach { case (succSpan, succ) =>
-          if (DEBUG) println(s"\nAT $time WE FIND UNPLACED $succSpan | ${succ.name}")
-          succ.quadLoc.foreach { succLoc =>
-            val occupied    = tl.placed(time)
-            if (DEBUG) println(s"We FIND PLACED ${occupied.map(_._2.name).mkString(", ")}")
-            val freeLayers0 = allLayers diff occupied.map(_._2.layer)
-            if (DEBUG) println(s"FREE LAYERS ARE ${freeLayers0.mkString(", ")}")
-            if (DEBUG) println(s"LAST LAYERS EXIST IN ${lastLayerProc.keys.toList.sorted.mkString(", ")}")
-            val freeLayers  = if (freeLayers0.nonEmpty) freeLayers0 else allLayers
-            val distances: Vec[Long] = freeLayers.map { layer =>
-              lastLayerProc.get(layer).fold(Long.MaxValue) { case (span, pred) =>
-                val predLoc = pred.quadLoc
-                predLoc.fold(Long.MaxValue)(succLoc distanceSq _)
-              }
-            }
-            if (DEBUG) println(s"DISTANCES ARE ${distances.zipWithIndex.map { case (d, i) => s"$i: $d" }.mkString(", ")}")
-            val minDistance = distances.min
-            val layer = freeLayers(distances.indexOf(minDistance))
-            if (DEBUG) println(s"YIELD A BEST LAYER OF $layer")
-            // assign layer: assign color, disconnect scan-out, reconnect scan-out
-            succ.attr.put(ObjView.attrColor, layerColors(layer))
-            val succOut = succ.elem.peer.scans.add("out")
-            succOut.sinks.foreach {
-              case Scan.Link.Scan(that) => succOut ~/> that
-              case _ =>
-            }
-            succOut ~> layerOuts(layer).elem.peer.scans.add("in")
-            lastLayerProc += layer -> (succSpan, succ)
-          }
-        }
-        // XXX TODO --- apparently we get a time >= input not a time > input
-        tl.nearestEventAfter(time + 1) match {
-          case Some(time1) =>
-            assert(time1 > time)
-            loop(time1)
-          case None =>
-        }
+    @tailrec def loop(time: Long, count: Int): Unit = {
+      val prog = (time.toDouble / tlLen * 100).toInt
+      while (lastProg < prog) {
+        print('#')
+        lastProg += 1
       }
 
-      val time0 = tl.nearestEventAfter(-1L).getOrElse(sys.error(s"Timeline is empty?!"))
-      println(f"Start time at ${time0.framesSeconds}%1.1f sec.; end = ${tlLen.framesSeconds}%1.1f sec.")
-      println("_" * 100)
-      loop(time0, movieTime = 0.0)
+      val pcs: Vec[ProcCoord] = cursor.step { implicit tx =>
+        val tl = tlH()
+        tl.intersect(time).flatMap[ProcCoord] {
+          case (span@Span(`time`, _), xs) =>
+            val objs = xs.map(_.value)
+            objs.collect {
+              case ProcCoord(pc) => pc: ProcCoord
+            }
+          case _ => Vector.empty[ProcCoord]
+
+        }.toIndexedSeq
+      }
+
+      val countOut = (count /: pcs) { case (c1, pc) =>
+        mkImage(dir = output, pc = pc, time = time, count = count, vis = vis)
+        c1 + 1
+      }
+
+      // XXX TODO --- apparently we get a time >= input not a time > input
+      val timeOut = cursor.step { implicit tx =>
+        val tl = tlH()
+        tl.nearestEventAfter(time + 1)
+      }
+
+      timeOut match {
+        case Some(time1) =>
+          assert(time1 > time)
+          loop(time1, count = countOut)
+        case None =>
+      }
     }
+
+    val time0 = cursor.step { implicit tx =>
+      val tl = tlH()
+      tl.nearestEventAfter(-1L).getOrElse(sys.error(s"Timeline is empty?!"))
+    }
+    println(f"Start time at ${time0.framesSeconds}%1.1f sec.; end = ${tlLen.framesSeconds}%1.1f sec.")
+    println("_" * 100)
+    loop(time0, count = 0)
 
     println(" Done.")
     workspace.close()
     sys.exit()
   }
-  */
+
+  object ProcCoord {
+    private val RegExp = """\((\d+),(\d+)\).*""".r
+
+    def unapply[S <: Sys[S]](obj: Obj[S])(implicit tx: S#Tx): Option[ProcCoord] =
+      Proc.Obj.unapply(obj).flatMap { procObj =>
+        import proc.Implicits._
+        // procObj.name = s"(${node.coord.x},${node.coord.y})"
+        if (procObj.muted) None else procObj.name match {
+          case RegExp(a, b) => Try {
+              val pt = IntPoint2D(a.toInt, b.toInt)
+              new ProcCoord(pt, procObj.elem.peer.graph.value)
+            } .toOption
+          case _ => None
+        }
+      }
+  }
+  class ProcCoord(val coord: Coord, val graph: SynthGraph)
 }
