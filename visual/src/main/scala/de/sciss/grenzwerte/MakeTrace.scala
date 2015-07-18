@@ -13,6 +13,8 @@
 
 package de.sciss.grenzwerte
 
+import java.awt.EventQueue
+
 import de.sciss.file._
 import de.sciss.grenzwerte.visual.Visual
 import de.sciss.lucre.bitemp.BiGroup
@@ -29,7 +31,7 @@ import de.sciss.swingplus.CloseOperation
 import de.sciss.{swingplus, synth}
 import de.sciss.synth.proc.{Obj, Proc}
 import de.sciss.synth.ugen.{BinaryOpUGen, Constant, UnaryOpUGen}
-import de.sciss.synth.{SynthGraph, UGenSource, proc}
+import de.sciss.synth.{audio, UGenSpec, GE, SynthGraph, UGenSource, proc}
 
 import scala.annotation.tailrec
 import scala.swing.{Component, Frame, Swing}
@@ -38,7 +40,8 @@ import scala.util.Try
 object MakeTrace {
   case class Config(session : File = file("workspaces")/"second.mllt",
                     output  : File = file("image_out"),
-                    timeline: String = "T-1"
+                    timeline: String = "T-1",
+                    test: Boolean = false
                     /* width: Int = 1920, height: Int = 1080, fps: Int = 25, speed: Double = 1.0, */
                     /* durationFactor: Double = 8.0 */)
 
@@ -56,17 +59,19 @@ object MakeTrace {
     val parser = new scopt.OptionParser[Config]("MakeTrace") {
       opt[File]('s', "session") text "session file"     action { (x, c) => c.copy(session = x) }
       opt[File]('d', "output" ) text "output directory" action { (x, c) => c.copy(output  = x) }
-//      opt[Unit]('r', "remove-colors") text "initially clear old color attributes" action {
-//        (_, c) => c.copy(removeColors = true)
-//      }
+      opt[Unit]('t', "test"   ) text "run test routine" action {
+        (_, c) => c.copy(test = true)
+      }
       opt[String]('t', "timeline") text "timeline name" action { (x, c) => c.copy(timeline = x) }
     }
     parser.parse(args, Config()).fold(sys.exit(1)) { config =>
-      type S = InMemory
-      implicit val system = InMemory()
-      val vis = system.step { implicit tx => Visual[S] }
-      Swing.onEDT(mkFrame(vis.component))
-      run(config, vis)
+      if (config.test) testVis() else {
+        type S = InMemory
+        implicit val system = InMemory()
+        val vis = system.step { implicit tx => Visual[S] }
+        Swing.onEDT(mkFrame(vis.component))
+        run(config, vis)
+      }
     }
     // testVis()
   }
@@ -87,7 +92,7 @@ object MakeTrace {
       val vis = Visual[S]
       vis.insertChromosome(c)
       deferTx {
-        val f = mkFrame(vis.component)
+        /* val f = */ mkFrame(vis.component)
         vis.animationStep()
         Swing.onEDT {
           vis.visualization.synchronized {
@@ -110,6 +115,18 @@ object MakeTrace {
       me.defaultCloseOperation = CloseOperation.Exit
     }
 
+  private def mkSeqSpec(n: Int) = {
+    val out = UGenSpec.Output(name = None, shape = UGenSpec.SignalShape.Generic, variadic = None)
+    val args = (0 until n).map { i =>
+      UGenSpec.Argument(name = s"in$i", tpe = UGenSpec.ArgumentType.GE(UGenSpec.SignalShape.Generic),
+        defaults = Map.empty, rates = Map.empty)
+    }
+    val inputs = args.map(a => UGenSpec.Input(arg = a.name, tpe = UGenSpec.Input.Single))
+    UGenSpec(name = "Mix", attr = Set.empty,
+      rates = UGenSpec.Rates.Implied(audio, UGenSpec.RateMethod.Custom("apply")),
+      args = args, inputs = inputs, outputs = Vec(out), doc = None)
+  }
+
   /** Note -- this is not a reliable or complete reproduction right now. */
   def mkChromosome[S <: Sys[S]](g: SynthGraph)(implicit tx: S#Tx, ord: data.Ordering[S#Tx, Vertex[S]]): Chromosome[S] = {
     val ugenMap   = UGens.map // UGenSpec.standardUGens
@@ -130,23 +147,40 @@ object MakeTrace {
 
       case _ =>
         Option(vertexMap.get(p)).orElse {
-          val name = p match {
-            case u: BinaryOpUGen  => s"Bin_${u.selector.id}"
-            case u: UnaryOpUGen   => s"Un_${u.selector.id}"
-            case u: UGenSource[_] => u.name
-            case _ => "???"
+          p match {
+            case sq if sq.productPrefix == "GESeq" =>
+              val elems = sq.productElement(0).asInstanceOf[Vec[GE]]
+              val spec  = mkSeqSpec(elems.size)
+              val v     = Vertex.UGen(spec)
+              vertexMap.put(p, v)
+              t.addVertex(v)
+              elems.zipWithIndex.foreach {
+                case (child: Product, idx) =>
+                  insertProduct(child).foreach(cv => t.addEdge(Edge(v, cv, idx)))
+                case _ =>
+              }
+              Some(v)
+
+            case _ =>
+              val name = p match {
+                case u: BinaryOpUGen  => s"Bin_${u.selector.id}"
+                case u: UnaryOpUGen   => s"Un_${u.selector.id}"
+                case u: UGenSource[_] => u.name
+
+                case _ => "???"
+              }
+              val res = ugenMap.get(name).map(Vertex.UGen[S])
+              res.foreach { v =>
+                vertexMap.put(p, v)
+                t.addVertex(v)
+                p.productIterator.zipWithIndex.foreach {
+                  case (child: Product, idx) =>
+                    insertProduct(child).foreach(cv => t.addEdge(Edge(v, cv, idx)))
+                  case _ =>
+                }
+              }
+              res
           }
-          val res = ugenMap.get(name).map(Vertex.UGen[S])
-          res.foreach { v =>
-            vertexMap.put(p, v)
-            t.addVertex(v)
-            p.productIterator.zipWithIndex.foreach {
-              case (child: Product, idx) =>
-                insertProduct(child).foreach(cv => t.addEdge(Edge(v, cv, idx)))
-              case _ =>
-            }
-          }
-          res
         }
     }
 
@@ -163,14 +197,20 @@ object MakeTrace {
       vis.clearChromosomes()
       vis.insertChromosome(c)
     }
-    Swing.onEDTWait {
+
+    def edtSync(code: => Unit): Unit =
+      if (EventQueue.isDispatchThread) code
+      else EventQueue.invokeAndWait(new Runnable { def run() = code })
+
+    val name = s"frame${count}_${time}_${pc.coord.x}_${pc.coord.x}.png"
+
+    edtSync {
       vis.visualization.synchronized {
         for (i <- 1 to 400) {
           vis.layout.runOnce()
         }
+        vis.saveFrameAsPNG(dir / name)
       }
-      val name = s"frame${count}_${time}_${pc.coord.x}_${pc.coord.x}.png"
-      vis.saveFrameAsPNG(dir / name)
     }
   }
 

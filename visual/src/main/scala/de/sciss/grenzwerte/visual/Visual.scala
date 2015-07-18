@@ -1,6 +1,6 @@
 package de.sciss.grenzwerte.visual
 
-import java.awt.geom.Point2D
+import java.awt.geom.{AffineTransform, Point2D}
 import java.awt.image.BufferedImage
 import java.awt.{Color, Font, LayoutManager, RenderingHints}
 import java.io.FileInputStream
@@ -510,9 +510,12 @@ object Visual {
       // println(s"scale = ${display.getScale}")
       val x = r.x // display.getDisplayX.toInt
       val y = r.y // display.getDisplayY.toInt
-      println(s"x = $x, y = $y, width = ${r.width}, height = ${r.height}")
+      // println(s"x = $x, y = $y, width = ${r.width}, height = ${r.height}")
+      display.setTransform(new AffineTransform)
       display.pan(-x, -y) // panToAbs(new Point2D.Double(r.getCenterX, r.getCenterY))
+      // display.panTo(new Point2D.Double(r.getCenterX, r.getCenterY))
       saveFrameAsPNG(file, /* x = x, y = y, */ width = r.width /* + 2 */, height = r.height /* + 2 */)
+      display.setTransform(new AffineTransform)
     }
 
     // def saveFrameAsPNG(file: File, width: Int, height: Int): Unit = saveFrameAsPNG(file, 0, 0, width, height)
