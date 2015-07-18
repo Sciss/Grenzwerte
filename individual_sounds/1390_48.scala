@@ -1,6 +1,4 @@
-def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
-
-play {
+val x = play {
   // RandSeed.ir(trig = 1, seed = 56789.0)
   val trig1         = Trig1.ar(362.69864, dur = 11.697126)
   val freq_0        = BrownNoise.ar(trig1)
@@ -16,5 +14,8 @@ play {
   val pulseDivider  = PulseDivider.ar(trig = trig_1, div = 319.7083, start = 11.697126)
   val mix           = Mix(Seq[GE](pulseDivider, lFDNoise3, aPF, -220.82477, 0.0, gbmanL))
   val mono          = Mix.Mono(mix)
-  ConfigOut(mono)
+  val lim = Pan2.ar(Limiter.ar(LeakDC.ar(mono))) * "amp".kr(0.05)
+  Out.ar(0, lim)
 }
+
+x.set("amp" -> 0.2)

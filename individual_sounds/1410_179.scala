@@ -1,4 +1,3 @@
-def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
 
 val x = play {
   val freq_0    = BPF.ar(245.93669, freq = -1.7752516, rq = 0.017937798)
@@ -11,5 +10,6 @@ val x = play {
   val lFPar     = LFPar.ar(freq = freq_1, iphase = -1.6349065E-4)
   val mix       = Mix(Seq[GE](lFPar, fBSineL, ball))
   val mono      = Mix.Mono(mix)
-  ConfigOut(mono)
+  val lim =  Pan2.ar(Limiter.ar(LeakDC.ar(mono))) * "amp".kr(0.1)
+  Out.ar(0, lim)
 }

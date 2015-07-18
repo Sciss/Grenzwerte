@@ -1,6 +1,6 @@
 def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
 
-play {
+val x = play {
   val gbmanL    = GbmanL.ar(freq = 419.73846, xi = 317.49088, yi = 6863.464)
   val freq_0    = GbmanL.ar(freq = 242.49637, xi = 317.49088, yi = 678.4506)
   val freq_1    = Klank.ar(specs = 0.001798869, in = 673.7658, freqScale = 673.7658, freqOffset = 317.49088, decayScale = 268.2182)
@@ -12,5 +12,9 @@ play {
   val klank     = Klank.ar(specs = t2K, in = 317.49088, freqScale = 0.2578632, freqOffset = -1.6349065E-4, decayScale = 0.2578632)
   val mix       = Mix(Seq[GE](klank, bAllPass, cuspN, gbmanL))
   val mono      = Mix.Mono(mix)
-  Pan2.ar(Limiter.ar(LeakDC.ar(mono)))
+  Pan2.ar(Limiter.ar(LeakDC.ar(mono))) * "amp".kr(0.2)
 }
+
+x.run(false)
+x.set("amp" -> 0.2)
+x.run(true)

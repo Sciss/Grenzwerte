@@ -1,6 +1,4 @@
-def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
-
-play {
+val x = play {
   // RandSeed.ir(trig = 1, seed = 56789.0)
   val yi_0          = GrayNoise.ar(637.2363)
   val freeVerb      = FreeVerb.ar(637.2363, mix = 0.262003, room = 0.00788784, damp = 309.95212)
@@ -20,5 +18,6 @@ play {
   val blip          = Blip.ar(freq = freq_1, numHarm = -466.74478)
   val mix_0         = Mix(Seq[GE](blip, bRF, setResetFF, latoocarfianL, hPZ1, pan4, neq))
   val mono          = Mix.Mono(mix_0)
-  ConfigOut(mono)
+  val lim = Pan2.ar(Limiter.ar(LeakDC.ar(mono))) * "amp".kr(0.1)
+  Out.ar(0, lim)
 }

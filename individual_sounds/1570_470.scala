@@ -1,6 +1,4 @@
-def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
-
-play {
+val x = play {
   // RandSeed.ir(trig = 1, seed = 56789.0)
   val brownNoise    = BrownNoise.ar(432.45282)
   val leastChange   = LeastChange.ar(a = 15.518214, b = -220.16957)
@@ -18,9 +16,10 @@ play {
   val c_1           = Sum4(coinGate, -220.16957, 0.41877025, -2726.2134)
   val latoocarfianC = LatoocarfianC.ar(freq = 1711.0236, a = 9693.91, b = -0.0028438699, c = c_1, d = 0.45230204, xi = 742.4219, yi = -2726.2134)
   val allpassN      = AllpassN.ar(15.518214, maxDelayTime = 0.45230204, delayTime = -0.006679056, decayTime = decayTime)
-  val envGen_Perc   = EnvGen_Perc(allpassN, freq_0, -9876.091, 100.55316, 191.68068, -2726.2134, 1.0)
+  val envGen_Perc   = EnvGen.ar(Env.perc(allpassN, freq_0, -9876.091), 100.55316, 191.68068, -2726.2134, 1.0)
   val henonL        = HenonL.ar(freq = 0.002885573, a = a_1, b = 0.3, x0 = 1.0302194, x1 = -0.0028438699)
   val mix           = Mix(Seq[GE](henonL, envGen_Perc, latoocarfianC, lPZ1, gbmanL, lag3, fBSineL, lFSaw, brownNoise))
   val mono          = Mix.Mono(mix)
-  ConfigOut(mono)
+  val lim = Pan2.ar(Limiter.ar(LeakDC.ar(mono))) * "amp".kr(0.1)
+  Out.ar(0, lim)
 }

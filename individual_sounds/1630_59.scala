@@ -1,6 +1,4 @@
-def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
-
-play {
+val x = play {
   // RandSeed.ir(trig = 1, seed = 56789.0)
   val gbmanL_0      = GbmanL.ar(freq = 419.73846, xi = 695.37335, yi = 0.00788784)
   val minFreq       = LFGauss.ar(dur = -0.0029116, width = 0.00648538, phase = 88.28502, loop = 12.325766, doneAction = doNothing)
@@ -22,5 +20,9 @@ play {
   val lFDNoise1     = LFDNoise1.ar(695.37335)
   val mix           = Mix(Seq[GE](lFDNoise1, bRF, latoocarfianL, gbmanL_1, standardN, wrap, gbmanL_0))
   val mono          = Mix.Mono(mix)
-  ConfigOut(mono)
+  val leak = LeakDC.ar(mono)
+  val bad = CheckBadValues.ar(leak, post = 0)
+  val gate = Gate.ar(leak, bad sig_== 0)
+  val lim = Pan2.ar(Limiter.ar(gate)) * "amp".kr(0.05) // * DelayN.ar(Line.ar(0, 1, 1), 0.2, 0.2)
+  Out.ar(0, lim)
 }

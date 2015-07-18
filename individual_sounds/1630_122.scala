@@ -1,6 +1,4 @@
-def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
-
-play {
+val x = play {
   // RandSeed.ir(trig = 1, seed = 56789.0)
   val rHPF          = RHPF.ar(0.0030590198, freq = -2726.2134, rq = 0.46727282)
   val maxDelayTime  = Phasor.ar(trig = -0.4713431, speed = 633.6489, lo = rHPF, hi = 635.6367, resetVal = 790.3602)
@@ -26,5 +24,6 @@ play {
   val gbmanL        = GbmanL.ar(freq = 0.629519, xi = dust2, yi = yi_0)
   val mix           = Mix(Seq[GE](gbmanL, hasher, decay, tExpRand, gbmanN_1, leastChange, linCongC, gbmanN_0))
   val mono          = Mix.Mono(mix)
-  ConfigOut(mono)
+  val lim = Pan2.ar(Limiter.ar(LeakDC.ar(mono))) * "amp".kr(0.1)
+  Out.ar(0, lim)
 }

@@ -1,6 +1,4 @@
-def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
-
-play {
+val x = play {
   // RandSeed.ir(trig = 1, seed = 56789.0)
   val gbmanL_0      = GbmanL.ar(freq = 419.73846, xi = 1.2, yi = 0.00788784)
   val gbmanL_1      = GbmanL.ar(freq = 9.444879E-4, xi = 92.88581, yi = -953.0853)
@@ -24,5 +22,9 @@ play {
   val coinGate      = CoinGate.ar(0.0019275966, prob = 0.00648538)
   val mix_0         = Mix(Seq[GE](coinGate, linXFade2, bRF_1, standardN, lFDNoise1, latoocarfianL, lFGauss, bRF_0, leastChange, gbmanL_2, gbmanL_0))
   val mono          = Mix.Mono(mix_0)
-  ConfigOut(mono)
+  val leak = LeakDC.ar(mono)
+  val bad = CheckBadValues.ar(leak, post = 0)
+  val gate = Gate.ar(leak, bad sig_== 0)
+  val lim = Pan2.ar(Limiter.ar(gate)) * "amp".kr(0.05) // * DelayN.ar(Line.ar(0, 1, 1), 0.2, 0.2)
+  Out.ar(0, lim)
 }

@@ -1,6 +1,4 @@
-def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
-
-play {
+val x = play {
   // RandSeed.ir(trig = 1, seed = 56789.0)
   val rq            = TDelay.ar(trig = 9.298126, dur = 419.73846)
   val bRF           = BRF.ar(695.37335, freq = -0.0029116, rq = rq)
@@ -22,5 +20,6 @@ play {
   val fBSineN       = FBSineN.ar(freq = 23.868387, im = -2038.6556, fb = 0.00788784, a = 0.2578632, c = 23.868387, xi = 0.42893913, yi = 637.2363)
   val mix           = Mix(Seq[GE](fBSineN, latoocarfianL, formant, rHPF, leakDC, bRF))
   val mono          = Mix.Mono(mix)
-  ConfigOut(mono)
+  val lim = Pan2.ar(Limiter.ar(LeakDC.ar(mono))) * "amp".kr(0.1)
+  Out.ar(0, lim)
 }

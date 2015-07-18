@@ -1,13 +1,4 @@
-def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
-
-def EnvGen_Triangle(dur: GE = 1.0f, level: GE = 1.0f, gate: GE = 1, 
-  levelScale: GE = 1.0f, levelBias: GE = 0.0f, timeScale: GE = 1.0f): GE = {
-    val mkEnv: Env = Env.triangle(dur = dur, level = level)
-    EnvGen.ar(mkEnv, gate = gate, levelScale = levelScale,
-     levelBias = levelBias, timeScale = timeScale)
-}
-
-play {
+val x_0 = play {
   // RandSeed.ir(trig = 1, seed = 56789.0)
   val delayTime       = GbmanL.ar(freq = 419.73846, xi = -2526.418, yi = 670.28094)
   val level           = BRF.ar(636.937, freq = -0.0029116, rq = 419.73846)
@@ -27,9 +18,12 @@ play {
   val lag2UD          = Lag2UD.ar(1.2398051, timeUp = -0.0054616947, timeDown = timeDown)
   val combN           = CombN.ar(19.27107, maxDelayTime = 0.9999994, delayTime = delayTime, decayTime = 2226.5508)
   val lagUD           = LagUD.ar(333.12207, timeUp = 19.27107, timeDown = 55.318325)
-  val envGen_Triangle = EnvGen_Triangle(0.19429296, bBandStop, logistic, 2226.5508, timeDown, 0.9999994)
+  val envGen_Triangle = EnvGen.ar(Env.triangle(0.19429296, bBandStop), logistic, 2226.5508, timeDown, 0.9999994)
   val mix             = Mix(Seq[GE](envGen_Triangle, lagUD, combN, lag2UD, linPan2, plus, gbmanL, gate, 1.0))
   val mono            = Mix.Mono(mix)
-  ConfigOut(mono)
+  val leak = LeakDC.ar(mono)
+  val bad = CheckBadValues.ar(leak, post = 0)
+  val gate_0 = Gate.ar(leak, bad sig_== 0)
+  val lim = Pan2.ar(Limiter.ar(gate_0).clip2(1)) * "amp".kr(0.05) // * DelayN.ar(Line.ar(0, 1, 1), 0.2, 0.2)
+  Out.ar(0, lim)
 }
-

@@ -1,11 +1,9 @@
-def ConfigOut(in: GE) = Out.ar(0, Pan2.ar(Limiter.ar(LeakDC.ar(in))))
-
-play {
+val x_0 = play {
   // RandSeed.ir(trig = 1, seed = 56789.0)
   val saw           = Saw.ar(0.42893913)
   val decodeB2      = DecodeB2.ar(numChannels = 1, w = 30.324293, x = 0.42893913, y = saw, orient = 0.006726554)
   val rLPF          = RLPF.ar(0.09296243, freq = 13.354841, rq = 0.020043306)
-  val phase         = EnvGen_Linen(413.78714, -0.0029116, 0.0015142808, 3.0152974, 413.78714, 0.09296243, rLPF, 2.529529E-4)
+  val phase         = EnvGen.ar(Env.linen(413.78714, -0.0029116, 0.0015142808, 3.0152974), 413.78714, 0.09296243, rLPF, 2.529529E-4)
   val freq_0        = Crackle.ar(0.020043306)
   val gbmanL_0      = GbmanL.ar(freq = freq_0, xi = 9.444879E-4, yi = 413.78714)
   val biPanB2       = BiPanB2.ar(inA = 0.36766747, inB = 0.36766747, azimuth = saw, level = 0.024061674)
@@ -20,5 +18,9 @@ play {
   val mantissaMask  = MantissaMask.ar(0.09296243, bits = 0.09436134)
   val mix           = Mix(Seq[GE](mantissaMask, pluck, runningMin, bRF, sinOsc, gbmanL_1, phasor, biPanB2, gbmanL_0, decodeB2))
   val mono          = Mix.Mono(mix)
-  ConfigOut(mono)
+  val leak = LeakDC.ar(mono)
+  val bad = CheckBadValues.ar(leak, post = 0)
+  val gate_0 = Gate.ar(leak, bad sig_== 0)
+  val lim = Pan2.ar(Limiter.ar(gate_0)) * "amp".kr(0.05) // * DelayN.ar(Line.ar(0, 1, 1), 0.2, 0.2)
+  Out.ar(0, lim)
 }
