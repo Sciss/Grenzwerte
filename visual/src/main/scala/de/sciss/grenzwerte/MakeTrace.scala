@@ -202,7 +202,7 @@ object MakeTrace {
       if (EventQueue.isDispatchThread) code
       else EventQueue.invokeAndWait(new Runnable { def run() = code })
 
-    val name = s"frame${count}_${time}_${pc.coord.x}_${pc.coord.x}.png"
+    val name = s"frame${count}_${time}_${pc.coord.x}_${pc.coord.y}.png"
 
     edtSync {
       vis.visualization.synchronized {
