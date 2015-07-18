@@ -1,3 +1,5 @@
+// HHR fixed some bugs, like screen black on black not giving you black
+
 /*
  * Copyright (c) 2006 Romain Guy <romain.guy@mac.com>
  * All rights reserved.
@@ -615,9 +617,9 @@ public final class BlendComposite implements Composite {
                         @Override
                         public int[] blend(int[] src, int[] dst) {
                             return new int[] {
-                                    (src[0] * dst[0]) >> 8,
-                                    (src[1] * dst[1]) >> 8,
-                                    (src[2] * dst[2]) >> 8,
+                                    (src[0] * dst[0]) / 255 /* >> 8 */,
+                                    (src[1] * dst[1]) / 255 /* >> 8 */,
+                                    (src[2] * dst[2]) / 255 /* >> 8 */,
                                     Math.min(255, src[3] + dst[3])
                             };
                         }
@@ -694,9 +696,9 @@ public final class BlendComposite implements Composite {
                         @Override
                         public int[] blend(int[] src, int[] dst) {
                             return new int[] {
-                                    255 - ((255 - src[0]) * (255 - dst[0]) >> 8),
-                                    255 - ((255 - src[1]) * (255 - dst[1]) >> 8),
-                                    255 - ((255 - src[2]) * (255 - dst[2]) >> 8),
+                                    255 - ((255 - src[0]) * (255 - dst[0]) / 255 /* >> 8 */),
+                                    255 - ((255 - src[1]) * (255 - dst[1]) / 255 /* >> 8 */),
+                                    255 - ((255 - src[2]) * (255 - dst[2]) / 255 /* >> 8 */),
                                     Math.min(255, src[3] + dst[3])
                             };
                         }

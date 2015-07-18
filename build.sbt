@@ -44,5 +44,6 @@ lazy val visual = Project(id = s"$baseNameL-visual", base = file("visual")).
   settings(
     name := s"$baseName-visual",
     libraryDependencies ++= Seq(
+      "de.sciss" % "intensitypalette" % "1.0.0"
     )
   )

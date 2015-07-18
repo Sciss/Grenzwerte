@@ -225,6 +225,8 @@ object MakeTrace {
     import proc.Implicits._
     import workspace.cursor
 
+    if (!output.exists()) output.mkdirs()
+
     val (tlLen, tlH) = cursor.step { implicit tx =>
       val tlT = Try(getTimeline(timeline))
       if (tlT.isFailure) {
