@@ -9,12 +9,12 @@ import javax.swing.JPanel
 
 import de.sciss.file._
 import de.sciss.kollflitz
-import de.sciss.lucre.event.InMemory
+import de.sciss.lucre.event.Sys
 import de.sciss.lucre.stm.TxnLike
 import de.sciss.lucre.swing.impl.ComponentHolder
 import de.sciss.lucre.swing.{defer, deferTx, requireEDT}
 import de.sciss.mutagentx.visual.impl.{BoxRenderer, MyEdgeRenderer, MySpringForce}
-import de.sciss.mutagentx.visual.{Visual => Vis, VideoSettings, VisualConstant, VisualEdge, VisualVertex}
+import de.sciss.mutagentx.visual.{VideoSettings, Visual => Vis, VisualConstant, VisualEdge, VisualVertex}
 import de.sciss.mutagentx.{Algorithm, Chromosome, Edge, Vertex}
 import de.sciss.processor.Processor
 import prefuse.action.assignment.ColorAction
@@ -27,7 +27,7 @@ import prefuse.render.DefaultRendererFactory
 import prefuse.util.ColorLib
 import prefuse.util.force.{DragForce, ForceSimulator, NBodyForce}
 import prefuse.visual.expression.InGroupPredicate
-import prefuse.visual.{VisualGraph, VisualItem}
+import prefuse.visual.{NodeItem, VisualGraph, VisualItem}
 import prefuse.{Constants, Display, Visualization}
 
 import scala.annotation.tailrec
@@ -46,9 +46,9 @@ object Visual {
   val VIDEO_HEIGHT    = 1920 / 2 // 576
   val VIDEO_WIDTH_SQR = 1080 / 2 // 1024 // 1024 : 576 = 16 : 9
 
-  type S = InMemory
+  // type S = InMemory
 
-  def apply()(implicit tx: S#Tx): Vis[S] = {
+  def apply[S <: Sys[S]](implicit tx: S#Tx): Visual[S] = {
     val map = TMap.empty[S#ID, VisualVertex[S]]
     // implicit val dtx = tx.durable
     new Impl(map).init()
@@ -88,19 +88,19 @@ object Visual {
   private final val ACTION_COLOR  = "color"
   private final val LAYOUT_TIME   = 50
 
-  private final class Impl(map: TMap[S#ID, VisualVertex[S]] /* , val algorithm: Algorithm.Confluent, cursorPos0: S#Acc */)
-    extends Vis[S] with ComponentHolder[Component] {
+  private final class Impl[S <: Sys[S]](map: TMap[S#ID, VisualVertex[S]] /* , val algorithm: Algorithm.Confluent, cursorPos0: S#Acc */)
+    extends Visual[S] with ComponentHolder[Component] {
 
     private[this] var _vis: Visualization       = _
     private[this] var _dsp: Display             = _
     private[this] var _g  : PGraph              = _
     private[this] var _vg : VisualGraph         = _
-    private[this] var _lay: ForceDirectedLayout = _
+    private[this] var _lay: MyForceDirectedLayout = _
     private[this] var actionColor: ActionList   = _
     private[this] var _runAnim = false
 
     // private val cursorPos = Ref(cursorPos0)
-    
+
     def algorithm: Algorithm[S] = ???
 
     def initChromosome(idx: Int): Unit = ???
@@ -121,6 +121,7 @@ object Visual {
 //      }
 
     def forceSimulator: ForceSimulator = _lay.getForceSimulator
+    def layout: MyForceDirectedLayout = _lay
 
     def insertChromosome(c: Chromosome[S])(implicit tx: S#Tx): Unit = {
       c.vertices.iterator.foreach { v =>
@@ -359,7 +360,7 @@ object Visual {
       // rf.add(new InGroupPredicate(AGGR_PROC  ), aggrRenderer)
       _vis.setRendererFactory(rf)
 
-      _lay = new ForceDirectedLayout(GROUP_GRAPH)
+      _lay = new MyForceDirectedLayout(GROUP_GRAPH)
       val sim = new ForceSimulator
       sim.addForce(new NBodyForce)
       sim.addForce(new MySpringForce)
@@ -392,14 +393,14 @@ object Visual {
       //      )
 
       val forceMap = Map(
-        ("NBodyForce" , "GravitationalConstant") -> -5.0f,
+        ("NBodyForce" , "GravitationalConstant") -> -2.5f, // -5.0f,
         ("NBodyForce" , "Distance"             ) -> -1.0f,
         ("NBodyForce" , "BarnesHutTheta"       ) -> 0.4f,
         ("DragForce"  , "DragCoefficient"      ) -> 0.02f,
         ("MySpringForce", "SpringCoefficient"  ) -> 8.0e-5f,
-        ("MySpringForce", "DefaultSpringLength") -> 150.0f,
+        ("MySpringForce", "DefaultSpringLength") -> 50f, // 150.0f,
         ("MySpringForce", "Torque"             ) -> 2.0e-4f,
-        ("MySpringForce", "Limit"              ) -> 300.0f
+        ("MySpringForce", "Limit"              ) -> 100.0f // 300.0f
       )
 
       forceSimulator.getForces.foreach { force =>
@@ -626,4 +627,8 @@ object Visual {
 
     def addLayoutComponent(name: String, comp: java.awt.Component) = ()
   }
+}
+trait Visual[S <: Sys[S]] extends Vis[S] {
+  def insertChromosome(c: Chromosome[S])(implicit tx: S#Tx): Unit
+  def layout: MyForceDirectedLayout // ForceDirectedLayout
 }

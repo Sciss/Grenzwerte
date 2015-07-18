@@ -4,7 +4,7 @@ def baseNameL = baseName.toLowerCase
 
 lazy val projectVersion   = "0.2.0-SNAPSHOT"
 
-lazy val mutagenVersion   = "0.2.0"
+lazy val mutagenVersion   = "0.2.1-SNAPSHOT"
 lazy val melliteVersion   = "1.7.0"
 lazy val ugensVersion     = "1.13.3"
 

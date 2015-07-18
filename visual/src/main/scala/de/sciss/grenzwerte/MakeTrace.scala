@@ -13,13 +13,20 @@
 
 package de.sciss.grenzwerte
 
+import de.sciss.grenzwerte.visual.Visual
 import de.sciss.lucre.bitemp.{SpanLike => SpanLikeEx}
-import de.sciss.lucre.data
-import de.sciss.lucre.event.Sys
+import de.sciss.lucre.{stm, data}
+import de.sciss.lucre.event.{InMemory, Sys}
 import de.sciss.lucre.expr.{Int => IntEx}
+import de.sciss.lucre.swing.deferTx
 import de.sciss.mutagentx.{Chromosome, Edge, Topology, UGens, Vertex}
+import de.sciss.swingplus
+import de.sciss.swingplus.CloseOperation
+import de.sciss.synth
 import de.sciss.synth.ugen.{BinaryOpUGen, Constant, UnaryOpUGen}
 import de.sciss.synth.{SynthGraph, UGenSource}
+
+import scala.swing.{Swing, Frame}
 
 object MakeTrace {
   case class Config(session: String = "second", timeline: String = "T-1",
@@ -35,9 +42,54 @@ object MakeTrace {
       opt[String]('t', "timeline") text "timeline name" action { (x, c) => c.copy(timeline = x) }
     }
     // parser.parse(args, Config()).fold(sys.exit(1))(run)
+    testVis()
   }
 
-  // type I = InMemory
+  implicit object VertexOrd extends data.Ordering[InMemory#Tx, Vertex[InMemory]] {
+    type S = InMemory
+
+    def compare(a: Vertex[S], b: Vertex[S])(implicit tx: S#Tx): Int = {
+      val aid = stm.Escape.inMemoryID(a.id)
+      val bid = stm.Escape.inMemoryID(b.id)
+      if (aid < bid) -1 else if (aid > bid) 1 else 0
+    }
+  }
+
+  def testVis(): Unit = {
+    val graph = SynthGraph {
+      import synth._
+      import ugen._
+      val f   = LFSaw.kr(0.4).madd(24, LFSaw.kr(Seq(8.0, 7.23)).madd(3, 80)).midicps
+      val sig = CombN.ar(SinOsc.ar(f)*0.04, 0.2, 0.2, 4)
+      Out.ar(0, sig)
+    }
+
+    type S = InMemory
+    val system = InMemory()
+    system.step { implicit tx =>
+      val c   = mkChromosome[S](graph)
+      val vis = Visual[S]
+      vis.insertChromosome(c)
+      deferTx {
+        new Frame { me =>
+          contents = vis.component
+          pack().centerOnScreen()
+          open()
+          import swingplus.Implicits._
+          me.defaultCloseOperation = CloseOperation.Exit
+          // vis.forceSimulator.setSpeedLimit(100f)
+          // vis.layout
+          vis.animationStep()
+          // vis.runAnimation = true
+        }
+        Swing.onEDT {
+          for (i <- 0 to 400) {
+            vis.layout.runOnce()
+          }
+        }
+      }
+    }
+  }
 
   /** Note -- this is not a reliable or complete reproduction right now. */
   def mkChromosome[S <: Sys[S]](g: SynthGraph)(implicit tx: S#Tx, ord: data.Ordering[S#Tx, Vertex[S]]): Chromosome[S] = {
