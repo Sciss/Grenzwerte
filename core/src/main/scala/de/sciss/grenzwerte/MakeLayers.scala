@@ -19,12 +19,12 @@ import de.sciss.lucre.bitemp.{BiGroup, SpanLike => SpanLikeEx}
 import de.sciss.lucre.expr.{Int => IntEx}
 import de.sciss.lucre.stm.store.BerkeleyDB
 import de.sciss.mellite.gui.ObjView
-import de.sciss.mellite.{Mellite, Color, Workspace}
+import de.sciss.mellite.{Color, Workspace}
 import de.sciss.span.Span
 import de.sciss.synth
 import de.sciss.synth.proc.graph.{Attribute, ScanInFix}
+import de.sciss.synth.proc.{IntElem, Obj, ObjKeys, Proc, Scan, SynthGraphs}
 import de.sciss.synth.{SynthGraph, proc}
-import de.sciss.synth.proc.{Timeline, IntElem, SynthGraphs, ObjKeys, Scan, Obj, Proc}
 
 import scala.annotation.tailrec
 import scala.util.Try
@@ -62,13 +62,12 @@ object MakeLayers {
   def run(config: Config): Unit = {
     de.sciss.mellite.initTypes()
     import config._
-    val wsF = (file("workspaces") / session).replaceExt("mllt")
+    val wsF: File = (file("workspaces") / session).replaceExt("mllt")
     require(wsF.isDirectory, s"Session $wsF not found")
     implicit val workspace = Workspace.Confluent.read(wsF, BerkeleyDB.Config())
-    import workspace.{S, cursor}
-
-    import proc.Implicits._
     import DSL._
+    import proc.Implicits._
+    import workspace.{S, cursor}
 
     val allLayers = Color.Palette.indices
 
